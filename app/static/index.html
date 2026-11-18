@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AzulForge Estoque</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #172554; background: #f1f5f9; }
+    body { margin: 0; }
+    header { background: #123b70; color: white; padding: 1.5rem max(1rem, calc((100% - 960px) / 2)); }
+    .header-title { display: flex; align-items: center; flex-wrap: wrap; gap: .75rem; margin-bottom: .25rem; }
+    header h1 { margin: 0; }
+    #environment-badge { border: 1px solid #ffffff70; border-radius: 999px; padding: .3rem .7rem; font-size: .8rem; font-weight: 800; letter-spacing: .04em; }
+    #environment-badge[data-environment="dev"] { background: #dbeafe; color: #1e40af; }
+    #environment-badge[data-environment="hml"] { background: #fef3c7; color: #92400e; }
+    #environment-badge[data-environment="prod"] { background: #fee2e2; color: #991b1b; }
+    #environment-badge[data-environment="unknown"] { background: #e2e8f0; color: #334155; }
+    main { max-width: 960px; margin: 2rem auto; padding: 0 1rem; }
+    section { background: white; border-radius: .75rem; box-shadow: 0 2px 8px #0f172a12; padding: 1.25rem; margin-bottom: 1rem; }
+    form, .fields { display: grid; gap: .8rem; }
+    .fields { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+    label { display: grid; gap: .3rem; font-size: .9rem; font-weight: 600; }
+    input, textarea { box-sizing: border-box; width: 100%; padding: .65rem; border: 1px solid #cbd5e1; border-radius: .4rem; font: inherit; }
+    textarea { min-height: 4.5rem; resize: vertical; }
+    button { border: 0; border-radius: .4rem; padding: .65rem .9rem; background: #155e9a; color: white; font: inherit; cursor: pointer; }
+    button.secondary { background: #475569; }
+    button.danger { background: #b42318; }
+    .actions { display: flex; gap: .5rem; }
+    .product { display: grid; grid-template-columns: 1fr auto; gap: .75rem; align-items: center; border-top: 1px solid #e2e8f0; padding: 1rem 0; }
+    .product h3, .product p { margin: .15rem 0; }
+    .muted, #message { color: #475569; }
+    #message { min-height: 1.5rem; }
+    @media (max-width: 560px) { .product { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-title">
+      <h1>AzulForge Estoque</h1>
+      <span id="environment-badge" data-environment="unknown" role="status" aria-live="polite">Identificando ambiente...</span>
+    </div>
+    <span>Cadastro e controle simples de produtos</span>
+  </header>
+  <main>
+    <section>
+      <h2 id="form-title">Cadastrar produto</h2>
+      <form id="product-form">
+        <div class="fields">
+          <label>Nome<input name="name" maxlength="120" required></label>
+          <label>SKU / código<input name="sku" maxlength="64" required></label>
+          <label>Quantidade<input name="quantity" type="number" min="0" step="1" required></label>
+          <label>Categoria<input name="category" maxlength="80" required></label>
+        </div>
+        <label>Descrição<textarea name="description" maxlength="1000"></textarea></label>
+        <div class="actions">
+          <button type="submit">Salvar produto</button>
+          <button id="cancel-edit" class="secondary" type="button" hidden>Cancelar edição</button>
+        </div>
+      </form>
+      <p id="message" role="status" aria-live="polite"></p>
+    </section>
+    <section>
+      <h2>Produtos em estoque</h2>
+      <div id="products"><p class="muted">Carregando...</p></div>
+    </section>
+  </main>
+  <script>
+    const form = document.querySelector("#product-form");
+    const products = document.querySelector("#products");
+    const message = document.querySelector("#message");
+    const formTitle = document.querySelector("#form-title");
+    const cancelEdit = document.querySelector("#cancel-edit");
+    const environmentBadge = document.querySelector("#environment-badge");
+    let editingId = null;
+
+    async function request(url, options) {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || `Falha na solicitação (${response.status}).`);
+      }
+      return response.status === 204 ? null : response.json();
+    }
+
+    async function loadProducts() {
+      try {
+        const items = await request("/api/products");
+        products.replaceChildren();
+        if (!items.length) {
+          products.innerHTML = '<p class="muted">Nenhum produto cadastrado.</p>';
+          return;
+        }
+        for (const item of items) {
+          const article = document.createElement("article");
+          article.className = "product";
+          const details = document.createElement("div");
+          const title = document.createElement("h3");
+          title.textContent = item.name;
+          const info = document.createElement("p");
+          info.textContent = `${item.category} · SKU ${item.sku} · ${item.quantity} em estoque`;
+          const description = document.createElement("p");
+          description.className = "muted";
+          description.textContent = item.description || "Sem descrição";
+          details.append(title, info, description);
+          const actions = document.createElement("div");
+          actions.className = "actions";
+          const edit = document.createElement("button");
+          edit.className = "secondary";
+          edit.textContent = "Editar";
+          edit.addEventListener("click", () => beginEdit(item));
+          const remove = document.createElement("button");
+          remove.className = "danger";
+          remove.textContent = "Excluir";
+          remove.addEventListener("click", () => removeProduct(item));
+          actions.append(edit, remove);
+          article.append(details, actions);
+          products.append(article);
+        }
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    async function loadEnvironment() {
+      const labels = {
+        dev: "DEV · DESENVOLVIMENTO",
+        hml: "HML · HOMOLOGAÇÃO",
+        prod: "PROD · DEMONSTRAÇÃO"
+      };
+      try {
+        const health = await request("/health");
+        const label = labels[health.environment];
+        if (!label) throw new Error(`Ambiente não reconhecido: ${health.environment}`);
+        environmentBadge.textContent = label;
+        environmentBadge.dataset.environment = health.environment;
+      } catch (error) {
+        environmentBadge.textContent = "AMBIENTE NÃO IDENTIFICADO";
+        environmentBadge.dataset.environment = "unknown";
+        environmentBadge.title = error.message;
+      }
+    }
+
+    function beginEdit(item) {
+      editingId = item.id;
+      for (const field of ["name", "sku", "quantity", "category", "description"]) {
+        form.elements[field].value = item[field];
+      }
+      formTitle.textContent = "Editar produto";
+      cancelEdit.hidden = false;
+      form.elements.name.focus();
+    }
+
+    function resetForm() {
+      editingId = null;
+      form.reset();
+      formTitle.textContent = "Cadastrar produto";
+      cancelEdit.hidden = true;
+    }
+
+    async function removeProduct(item) {
+      if (!window.confirm(`Excluir ${item.name}?`)) return;
+      try {
+        await request(`/api/products/${item.id}`, { method: "DELETE" });
+        message.textContent = "Produto excluído.";
+        await loadProducts();
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const payload = Object.fromEntries(new FormData(form));
+      payload.quantity = Number(payload.quantity);
+      try {
+        await request(editingId ? `/api/products/${editingId}` : "/api/products", {
+          method: editingId ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        message.textContent = editingId ? "Produto atualizado." : "Produto cadastrado.";
+        resetForm();
+        await loadProducts();
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    });
+
+    cancelEdit.addEventListener("click", resetForm);
+    loadEnvironment();
+    loadProducts();
+  </script>
+</body>
+</html>

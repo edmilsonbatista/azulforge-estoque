@@ -1,0 +1,36 @@
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.py[cod]
+data/
+
+# Local environment settings and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Terraform local state, plans, credentials, and cache
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.lock.info
+*.tfplan
+*.tfplan.*
+tfplan
+*.tfvars
+*.tfvars.json
+*.auto.tfvars
+*.auto.tfvars.json
+.terraformrc
+terraform.rc
+crash.log
+crash.*.log
